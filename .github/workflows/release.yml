@@ -37,7 +37,8 @@ jobs:
             -project Kclip.xcodeproj \
             -scheme Kclip \
             -destination 'platform=macOS' \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            ENABLE_HARDENED_RUNTIME=NO
 
       - name: Build app
         run: |
@@ -49,6 +50,7 @@ jobs:
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            ENABLE_HARDENED_RUNTIME=NO \
             PRODUCT_NAME=Kclip
 
       - name: Create DMG
