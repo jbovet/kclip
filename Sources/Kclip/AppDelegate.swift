@@ -30,7 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - App Lifecycle
 
+    /// `true` when the process is being launched as a test host by Xcode.
+    /// All heavy setup (hotkeys, clipboard monitor, UI) is skipped so the
+    /// unit-test runner doesn't hang on headless CI machines.
+    private var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        guard !isRunningTests else { return }
         setupStatusBar()
         setupFloatingPanel()
         setupClipboardMonitor()
