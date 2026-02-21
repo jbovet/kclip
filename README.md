@@ -20,6 +20,7 @@ Inspired by the feedback: *"It would be awesome if you didn't need to use the mo
 | `⌘⇧V` | Open the Spotlight-style clipboard panel from **anywhere** |
 | `↑ ↓` | Navigate the list |
 | `⏎` | Paste the selected item |
+| `⌥⏎` | Paste the selected item as plain text |
 | `1 – 0` | Instantly paste items 1–10 (fastest workflow) |
 | `⌘1 – ⌘5` | Instantly paste items 11–15 |
 | `⌘⌫` | Delete the selected item (works during search too) |
@@ -58,6 +59,7 @@ Pinned items are **never** removed by the history limit or "Clear all".
 - **Right-click** the menu bar icon → status menu with:
   - **Launch at Login** — toggles whether Kclip starts automatically
   - **History Size** — choose 10, 15, 25, or 50 items (default: 15)
+  - **Hotkey** — choose from ⌘⇧V (default), ⌘⇧C, ⌃⇧V, ⌥⇧V, or ⌘⇧B
   - **Quit Kclip**
 
 ---
@@ -74,6 +76,7 @@ The following apps are excluded by default:
 - Dashlane
 - Enpass
 - KeePassium / KeePassXC / KeePassX
+- Apple Passwords (macOS 15+)
 
 You can add your own exclusions via Terminal:
 
@@ -153,18 +156,20 @@ Kclip/
 │   │   └── ClipboardStore.swift   ← observable store + persistence
 │   ├── Services/
 │   │   ├── ClipboardMonitor.swift ← polls NSPasteboard every 0.5 s; excludes password managers
-│   │   ├── HotkeyManager.swift    ← Carbon global hotkey (⌘⇧V)
-│   │   └── ClipboardSearch.swift  ← multi-token AND search
+│   │   └── HotkeyManager.swift    ← Carbon global hotkey (⌘⇧V)
 │   ├── Views/
 │   │   ├── FloatingPanel.swift    ← NSPanel + controller
 │   │   ├── ClipboardPopupView.swift ← Spotlight-style popup UI
 │   │   └── ClipboardRowView.swift   ← single list row
 │   └── Utilities/
+│       ├── ClipboardSearch.swift  ← multi-token AND search
 │       └── PasteHelper.swift      ← CGEvent paste + AX permission
 ├── Tests/KclipTests/
 │   ├── ClipboardItemTests.swift    ← unit tests for ClipboardItem
 │   ├── ClipboardStoreTests.swift   ← unit tests for ClipboardStore
-│   └── ClipboardSearchTests.swift  ← unit tests for search logic
+│   ├── ClipboardSearchTests.swift  ← unit tests for search logic
+│   ├── ClipboardMonitorTests.swift ← unit tests for clipboard monitoring
+│   └── HotkeyOptionTests.swift     ← unit tests for hotkey serialization
 ├── Resources/
 │   ├── Info.plist
 │   ├── AppIcon.svg
@@ -206,7 +211,7 @@ Carbon hotkeys and `cghidEventTap` are not available inside the macOS App Sandbo
 
 ## Customisation Ideas
 
-- Change the hotkey in `AppDelegate.swift` → `setupHotkey()` → `hotkey.register(keyCode:modifiers:)`
+- Change the hotkey from the right-click status menu → Hotkey (⌘⇧V / ⌘⇧C / ⌃⇧V / ⌥⇧V / ⌘⇧B)
 - Change history size from the right-click status menu → History Size (10 / 15 / 25 / 50)
 - Add more password manager exclusions via `UserDefaults` (see Privacy section above)
 - Add image/file support in `ClipboardMonitor`
