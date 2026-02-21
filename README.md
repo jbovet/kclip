@@ -6,8 +6,6 @@
 
 A free, open-source, **keyboard-first** clipboard manager for macOS.
 
-Inspired by the feedback: *"It would be awesome if you didn't need to use the mouse and could just copy and go pasting everything you copied with just shortcuts."*
-
 > **Experimental personal tool** — built for personal use and shared as-is.
 > No warranties, no guaranteed updates. Use it, fork it, break it.
 
