@@ -1,0 +1,38 @@
+# ──────────────────────────────────────────────
+#  macOS
+# ──────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ──────────────────────────────────────────────
+#  Xcode build artifacts
+# ──────────────────────────────────────────────
+build/
+DerivedData/
+*.hmap
+
+# ──────────────────────────────────────────────
+#  Xcode per-user state (not shared between devs)
+# ──────────────────────────────────────────────
+*.xcuserstate
+xcuserdata/
+
+# ──────────────────────────────────────────────
+#  Generated Xcode project (use `xcodegen generate`)
+#  The source of truth is project.yml — run:
+#    brew install xcodegen
+#    xcodegen generate
+# ──────────────────────────────────────────────
+Kclip.xcodeproj/
+
+# ──────────────────────────────────────────────
+#  Local Claude Code config
+# ──────────────────────────────────────────────
+.claude/
+
+# ──────────────────────────────────────────────
+#  Swift Package Manager (if added later)
+# ──────────────────────────────────────────────
+.build/
+*.resolved

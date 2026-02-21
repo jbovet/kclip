@@ -1,0 +1,80 @@
+# project.yml – XcodeGen configuration for Kclip
+# Install XcodeGen: brew install xcodegen
+# Then run: xcodegen generate
+# This creates Kclip.xcodeproj which you can open in Xcode and build/run.
+
+name: Kclip
+options:
+  bundleIdPrefix: cc.kclip
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    PRODUCT_NAME: Kclip
+    SWIFT_VERSION: "5.9"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    CODE_SIGN_STYLE: Automatic
+    # Change to your Apple Developer Team ID, or leave blank for local builds:
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  Kclip:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Kclip
+        type: group
+    resources:
+      - path: Resources/Info.plist
+      - path: Resources/Assets.xcassets
+    info:
+      path: Resources/Info.plist
+      properties:
+        LSUIElement: true
+        LSMinimumSystemVersion: "13.0"
+        NSHumanReadableCopyright: "Copyright © 2025 Jose Bovet Derpich. MIT License."
+        NSAccessibilityUsageDescription: "Kclip needs accessibility permission to paste clipboard items into other applications."
+    entitlements:
+      path: Resources/Kclip.entitlements
+    settings:
+      base:
+        INFOPLIST_FILE: Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Resources/Kclip.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: cc.kclip.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      # No external dependencies — pure system frameworks
+      []
+
+  KclipTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/KclipTests
+    dependencies:
+      - target: Kclip
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: cc.kclip.tests
+        PRODUCT_MODULE_NAME: KclipTests
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        GENERATE_INFOPLIST_FILE: YES
+
+schemes:
+  Kclip:
+    build:
+      targets:
+        Kclip: all
+        KclipTests: testing
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - KclipTests
+    archive:
+      config: Release
