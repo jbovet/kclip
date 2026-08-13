@@ -355,7 +355,7 @@ struct ClipboardPopupView: View {
         store.remove(id: item.id)
         // Keep selection in bounds: after removal the list is one shorter, so
         // clamp to the new last index (selection stays put or moves up by one).
-        selectedIndex = max(0, min(selectedIndex, filteredItems.count - 1))
+        selectedIndex = SelectionMath.clampedAfterRemoval(selectedIndex, newCount: filteredItems.count)
     }
 
     /// Toggles the pin state of the currently selected item. Works during search; no-op when preview is open.
@@ -387,9 +387,7 @@ struct ClipboardPopupView: View {
     }
 
     private func moveSelection(_ delta: Int) {
-        let count = filteredItems.count
-        guard count > 0 else { return }
-        selectedIndex = (selectedIndex + delta + count) % count
+        selectedIndex = SelectionMath.wrapped(selectedIndex, delta: delta, count: filteredItems.count)
     }
 
     private func pasteSelected() {

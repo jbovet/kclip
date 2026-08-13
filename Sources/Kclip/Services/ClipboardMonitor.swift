@@ -19,6 +19,22 @@ final class ClipboardMonitor {
     /// How often (in seconds) the pasteboard is checked. 0.5 s feels instant.
     private let pollInterval: TimeInterval = 0.5
 
+    /// Maximum size, in UTF-8 bytes, of clipboard text that will be captured.
+    ///
+    /// Larger payloads (e.g. an accidental copy of a whole file) are skipped so
+    /// the JSON-in-`UserDefaults` store stays small and the full re-encode that
+    /// happens on every mutation stays cheap. 1 MB ≈ ~1 million ASCII chars.
+    static let maxContentByteCount = 1_000_000
+
+    /// Returns `true` when `text` is small enough to be stored in history.
+    ///
+    /// Uses UTF-8 byte length (not `count`) so multi-byte content is measured
+    /// by its real storage cost. Extracted as a pure, static function so the
+    /// size policy can be unit-tested without touching `NSPasteboard`.
+    static func isWithinSizeLimit(_ text: String) -> Bool {
+        text.utf8.count <= maxContentByteCount
+    }
+
     /// Bundle identifiers of apps whose clipboard content is **never** captured.
     ///
     /// Password managers and other credential tools are excluded by default so
@@ -64,6 +80,9 @@ final class ClipboardMonitor {
     /// Total number of clipboard changes silently excluded since launch.
     private(set) var excludedCount: Int = 0
 
+    /// Total number of clipboard changes skipped for exceeding ``maxContentByteCount``.
+    private(set) var oversizedCount: Int = 0
+
     // MARK: - Lifecycle
 
     /// Begins polling the clipboard. Safe to call more than once; subsequent calls are no-ops.
@@ -104,6 +123,11 @@ final class ClipboardMonitor {
         // We focus on plain text for now; images/files can be added later
         if let string = pasteboard.string(forType: .string),
            !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Skip very large payloads so they never bloat the persisted store.
+            guard Self.isWithinSizeLimit(string) else {
+                oversizedCount += 1
+                return
+            }
             let item = ClipboardItem(content: string)
             DispatchQueue.main.async { [weak self] in
                 self?.onNewItem?(item)

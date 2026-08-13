@@ -29,15 +29,13 @@ targets:
       - path: Sources/Kclip
         type: group
     resources:
-      - path: Resources/Info.plist
+      # Info.plist is NOT listed here: it is the bundle's Info.plist (set via
+      # INFOPLIST_FILE below), not a resource to copy into Copy Bundle Resources.
       - path: Resources/Assets.xcassets
-    info:
-      path: Resources/Info.plist
-      properties:
-        LSUIElement: true
-        LSMinimumSystemVersion: "13.0"
-        NSHumanReadableCopyright: "Copyright © 2025 Jose Bovet Derpich. MIT License."
-        NSAccessibilityUsageDescription: "Kclip needs accessibility permission to paste clipboard items into other applications."
+    # Single source of truth for the Info.plist is the checked-in
+    # Resources/Info.plist file, referenced by INFOPLIST_FILE in settings.
+    # (No `info:` block here — it would regenerate/overwrite that file on every
+    # `xcodegen generate`, silently discarding manual edits.)
     entitlements:
       path: Resources/Kclip.entitlements
     settings:
