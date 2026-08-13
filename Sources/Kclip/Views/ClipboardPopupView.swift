@@ -352,12 +352,10 @@ struct ClipboardPopupView: View {
     private func deleteSelected() {
         guard previewItem == nil,
               let item = filteredItems[safe: selectedIndex] else { return }
-        let prevCount = filteredItems.count
         store.remove(id: item.id)
-        // Keep index in bounds after removal
-        if selectedIndex >= prevCount - 1 {
-            selectedIndex = max(0, prevCount - 2)
-        }
+        // Keep selection in bounds: after removal the list is one shorter, so
+        // clamp to the new last index (selection stays put or moves up by one).
+        selectedIndex = max(0, min(selectedIndex, filteredItems.count - 1))
     }
 
     /// Toggles the pin state of the currently selected item. Works during search; no-op when preview is open.

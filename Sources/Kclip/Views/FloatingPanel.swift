@@ -111,10 +111,11 @@ final class KeyEventBridge {
             // Space — preview, only when search is empty and no preview is open
             if !isSearchActive() && event.keyCode == 49 { onSpace(); return nil }
 
-            // Items 1–9 (top-row and numpad), 0 = item 10
-            let topRow: [UInt16: Int] = [18:1, 19:2, 20:3, 21:4, 23:5, 22:6, 26:7, 28:8, 25:9, 29:10]
-            let numpad: [UInt16: Int] = [83:1, 84:2, 85:3, 86:4, 87:5, 88:6, 89:7, 91:8, 92:9, 82:10]
-            if let digit = topRow[event.keyCode] ?? numpad[event.keyCode] {
+            // Items 1–10 (top-row and numpad). Acts as a paste shortcut only
+            // when the search field is inactive, so digits can still be typed
+            // into a query (e.g. "python3", "utf8").
+            if let digit = DigitKeyMapping.unmodifiedPasteIndex(
+                keyCode: event.keyCode, searchActive: isSearchActive()) {
                 onDigit(digit); return nil
             }
         }
@@ -134,9 +135,10 @@ final class KeyEventBridge {
             case 6:  onUndo();   return nil   // ⌘Z     — undo last delete
             default: break
             }
-            // Items 11–15 via ⌘1–⌘5
-            let cmdDigits: [UInt16: Int] = [18:11, 19:12, 20:13, 21:14, 23:15]
-            if let digit = cmdDigits[event.keyCode] { onDigit(digit); return nil }
+            // Items 11–15 via ⌘1–⌘5 (active even during search, like other ⌘ shortcuts).
+            if let digit = DigitKeyMapping.commandPasteIndex(keyCode: event.keyCode) {
+                onDigit(digit); return nil
+            }
         }
 
         return event
