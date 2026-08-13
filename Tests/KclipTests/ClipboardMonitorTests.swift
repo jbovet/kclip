@@ -59,6 +59,36 @@ final class ClipboardMonitorTests: XCTestCase {
         monitor.stop()
     }
 
+    // MARK: - Size limit
+
+    func testIsWithinSizeLimit_smallStringIsAccepted() {
+        XCTAssertTrue(ClipboardMonitor.isWithinSizeLimit("hello"))
+        XCTAssertTrue(ClipboardMonitor.isWithinSizeLimit(""))
+    }
+
+    func testIsWithinSizeLimit_exactlyAtLimitIsAccepted() {
+        let atLimit = String(repeating: "a", count: ClipboardMonitor.maxContentByteCount)
+        XCTAssertTrue(ClipboardMonitor.isWithinSizeLimit(atLimit))
+    }
+
+    func testIsWithinSizeLimit_oneOverLimitIsRejected() {
+        let overLimit = String(repeating: "a", count: ClipboardMonitor.maxContentByteCount + 1)
+        XCTAssertFalse(ClipboardMonitor.isWithinSizeLimit(overLimit))
+    }
+
+    func testIsWithinSizeLimit_measuresUTF8Bytes_notCharacterCount() {
+        // "é" is 1 Character but 2 UTF-8 bytes, so half-the-limit of them exceeds it.
+        let multibyte = String(repeating: "é", count: ClipboardMonitor.maxContentByteCount / 2 + 1)
+        XCTAssertLessThan(multibyte.count, ClipboardMonitor.maxContentByteCount)
+        XCTAssertFalse(ClipboardMonitor.isWithinSizeLimit(multibyte),
+                       "size must be measured in UTF-8 bytes, not Character count")
+    }
+
+    func testOversizedCount_startsAtZero() {
+        let monitor = ClipboardMonitor()
+        XCTAssertEqual(monitor.oversizedCount, 0)
+    }
+
     // MARK: - Initial state
 
     func testExcludedCount_startsAtZero() {
