@@ -186,6 +186,27 @@ final class ClipboardStoreTests: XCTestCase {
         XCTAssertFalse(store.items[0].isPinned)
     }
 
+    /// Regression: unpinning must re-apply the history limit. Previously the
+    /// unpinned set could grow past `maxItems` until the next `add()`.
+    func testTogglePin_unpinRespectsMaxItems() {
+        store.maxItems = 3
+        let pinned = ClipboardItem(content: "P")
+        store.add(pinned)
+        store.togglePin(id: pinned.id)             // P is pinned, above the limit
+        store.add(ClipboardItem(content: "A"))
+        store.add(ClipboardItem(content: "B"))
+        store.add(ClipboardItem(content: "C"))     // 3 unpinned — at the limit
+        XCTAssertEqual(store.items.filter { !$0.isPinned }.count, 3)
+
+        store.togglePin(id: pinned.id)             // unpin P → would be 4 unpinned
+        XCTAssertEqual(store.items.filter { !$0.isPinned }.count, 3,
+                       "unpinning must not leave more than maxItems unpinned")
+        XCTAssertEqual(store.items.filter { $0.isPinned }.count, 0)
+        // The just-unpinned item is kept (floats to top); the oldest is evicted.
+        XCTAssertTrue(store.items.contains { $0.content == "P" })
+        XCTAssertFalse(store.items.contains { $0.content == "A" })
+    }
+
     // MARK: - Clear Unpinned
 
     func testClearUnpinned_removeOnlyUnpinned() {

@@ -134,11 +134,13 @@ struct ClipboardPopupView: View {
                 onDismiss()
             }
         }
-        // Shown when paste() fires but there is no previous app to paste into
-        .onReceive(NotificationCenter.default.publisher(for: .clipClipCopiedOnly)) { _ in
-            bannerMessage = "Copied to clipboard"
+        // Shown when the item was copied but not injected (no target app, or
+        // Accessibility permission missing). The message is supplied by the sender.
+        .onReceive(NotificationCenter.default.publisher(for: .clipClipCopiedOnly)) { note in
+            let message = (note.userInfo?["message"] as? String) ?? "Copied to clipboard"
+            bannerMessage = message
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.bannerDisplayDuration) {
-                bannerMessage = nil
+                if bannerMessage == message { bannerMessage = nil }
             }
         }
         // BridgeUpdater keeps KeyEventBridge closures current on every SwiftUI render.
