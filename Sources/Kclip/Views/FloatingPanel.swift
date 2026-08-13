@@ -291,8 +291,18 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     // MARK: - Private
 
     /// Shared paste logic for both normal paste and paste-as-plain-text.
+    ///
+    /// A real ⌘V injection needs both a captured target app *and* Accessibility
+    /// permission — without the latter the `CGEvent` is dropped silently and the
+    /// user would see nothing happen. In either missing case we fall back to
+    /// copy-only (the text is still on the clipboard for a manual paste) and show
+    /// a banner explaining what happened.
     private func performPaste(_ text: String, plainText: Bool) {
-        if pasteHelper.previousApp != nil {
+        let hasTarget      = pasteHelper.previousApp != nil
+        let hasPermission  = PasteHelper.hasAccessibilityPermission
+        let canInject      = hasTarget && hasPermission
+
+        if canInject {
             hide()
             if plainText {
                 pasteHelper.pastePlainText(text)
@@ -303,7 +313,15 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
             let pb = NSPasteboard.general
             pb.clearContents()
             pb.setString(text, forType: .string)
-            NotificationCenter.default.post(name: .clipClipCopiedOnly, object: nil)
+
+            // Distinguish "nowhere to paste" from "not allowed to paste" so the
+            // user knows to grant Accessibility (and restart) when that's the cause.
+            let message = hasTarget && !hasPermission
+                ? "Copied — enable Accessibility to paste"
+                : "Copied to clipboard"
+            NotificationCenter.default.post(
+                name: .clipClipCopiedOnly, object: nil, userInfo: ["message": message])
+
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.copiedOnlyAutoHideDelay) { [weak self] in
                 self?.hide()
             }

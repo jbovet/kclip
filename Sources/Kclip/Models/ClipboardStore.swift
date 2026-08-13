@@ -127,9 +127,14 @@ class ClipboardStore: ObservableObject {
     func togglePin(id: UUID) {
         guard let idx = items.firstIndex(where: { $0.id == id }) else { return }
         items[idx].isPinned.toggle()
-        // Re-sort: pinned items float to top
+        // Re-sort: pinned items float to top.
         let pinned   = items.filter { $0.isPinned }
-        let unpinned = items.filter { !$0.isPinned }
+        var unpinned = items.filter { !$0.isPinned }
+        // Unpinning grows the unpinned set and can push it over the limit — trim
+        // the oldest so togglePin respects maxItems the same way add() does.
+        if unpinned.count > maxItems {
+            unpinned = Array(unpinned.prefix(maxItems))
+        }
         items = pinned + unpinned
         save()
     }
