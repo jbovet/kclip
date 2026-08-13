@@ -346,6 +346,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
             },
             onQuit: {
                 NSApp.terminate(nil)
+            },
+            onOpenPreferences: { [weak self] in
+                // Ask the delegate to show Preferences, then dismiss the panel.
+                NotificationCenter.default.post(name: .openKclipPreferences, object: nil)
+                self?.hide()
             }
         )
 

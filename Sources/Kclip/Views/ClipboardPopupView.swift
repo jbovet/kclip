@@ -48,6 +48,8 @@ struct ClipboardPopupView: View {
     var onDismiss: () -> Void
     /// Called when the user clicks the power button to quit the app.
     var onQuit: () -> Void
+    /// Called when the user clicks the gear button to open Preferences.
+    var onOpenPreferences: () -> Void
 
     // MARK: - State
 
@@ -316,6 +318,15 @@ struct ClipboardPopupView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: bannerMessage)
+
+            Button(action: onOpenPreferences) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Preferences (⌘,)")
+            .accessibilityLabel("Preferences")
 
             Button(action: confirmClearAll) {
                 Image(systemName: "trash")
