@@ -59,6 +59,14 @@ struct ClipboardPopupView: View {
     @State private var bannerMessage: String? = nil
     /// Item currently shown in the full-content preview overlay. `nil` = overlay hidden.
     @State private var previewItem: ClipboardItem? = nil
+    /// `true` when the pending `selectedIndex` change came from ↑/↓ navigation.
+    ///
+    /// Gates the auto-scroll-to-center in `itemsList`: keyboard navigation should
+    /// recenter the selected row, but hover-driven selection (which fires while the
+    /// user scrolls with the mouse) must NOT — otherwise each scroll notch triggers
+    /// a recentering jump, and the rows moving under the cursor feed back into more
+    /// hovers, making the list scroll far too fast.
+    @State private var isKeyboardNavigating = false
 
     // MARK: - Timing Constants
 
@@ -221,7 +229,14 @@ struct ClipboardPopupView: View {
                             .id(idx)
                             .contentShape(Rectangle())
                             .onTapGesture { onPaste(item) }
-                            .onHover { hovering in if hovering { selectedIndex = idx } }
+                            .onHover { hovering in
+                                // Hover selection must never trigger the auto-scroll
+                                // (see isKeyboardNavigating) — the row is already visible.
+                                if hovering {
+                                    isKeyboardNavigating = false
+                                    selectedIndex = idx
+                                }
+                            }
                             .contextMenu {
                                 Button("Paste")   { onPaste(item) }
                                 Button("Paste as Plain Text") { onPastePlainText(item) }
@@ -240,11 +255,23 @@ struct ClipboardPopupView: View {
                 .padding(.vertical, 6)
                 .padding(.horizontal, 6)
             }
-            // Keep selected row visible when navigating with ↑/↓
+            // Keep selected row visible when navigating with ↑/↓.
+            // Only auto-scroll for keyboard navigation — hover-driven selection
+            // (while scrolling with the mouse) must not recenter, or the list
+            // scrolls uncontrollably fast.
             .onChange(of: selectedIndex) { newIdx in
+                guard isKeyboardNavigating else { return }
+                isKeyboardNavigating = false
                 withAnimation(.easeInOut(duration: 0.15)) {
                     proxy.scrollTo(newIdx, anchor: .center)
                 }
+            }
+            // Reset the list to the top whenever the query changes so the best
+            // matches are visible. Driven by searchText (not selection), so it
+            // works even when selectedIndex was already 0, and never feeds the
+            // hover→scroll loop that the keyboard-nav gate above prevents.
+            .onChange(of: searchText) { _ in
+                proxy.scrollTo(0, anchor: .top)
             }
         }
         // Cap the list at maxListHeight so NSHostingView.fittingSize reports the right
@@ -389,6 +416,8 @@ struct ClipboardPopupView: View {
     }
 
     private func moveSelection(_ delta: Int) {
+        // Flag before mutating so onChange(of: selectedIndex) knows to recenter.
+        isKeyboardNavigating = true
         selectedIndex = SelectionMath.wrapped(selectedIndex, delta: delta, count: filteredItems.count)
     }
 
