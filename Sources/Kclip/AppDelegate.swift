@@ -6,6 +6,13 @@ import AppKit
 import SwiftUI
 import ServiceManagement
 
+extension Notification.Name {
+    /// Posted by the SwiftUI ⌘, command (see ``KclipApp``) to ask the delegate
+    /// to open its Preferences window. Keeps a single window for both the ⌘,
+    /// shortcut and the status-bar "Preferences…" item.
+    static let openKclipPreferences = Notification.Name("cc.kclip.openPreferences")
+}
+
 /// Central coordinator that wires together all of Kclip's subsystems.
 ///
 /// Responsibilities (in launch order):
@@ -18,7 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Core Objects
 
-    private let store       = ClipboardStore()
+    /// Shared clipboard history store. Exposed (non-private) so the SwiftUI
+    /// `Settings` scene in ``KclipApp`` can bind the same instance the monitor
+    /// and panel use.
+    let store               = ClipboardStore()
     private let monitor     = ClipboardMonitor()
     private let pasteHelper = PasteHelper()
     private let hotkey      = HotkeyManager.shared
@@ -27,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var panelController: FloatingPanelController?
+    /// Retained Preferences window. Built lazily on first open and reused.
+    private var settingsWindow: NSWindow?
 
     // MARK: - App Lifecycle
 
@@ -44,6 +56,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupClipboardMonitor()
         setupHotkey()
         checkAccessibility()
+
+        // ⌘, from the SwiftUI command (KclipApp) opens the same custom window
+        // as the status-bar "Preferences…" item, so there is only ever one.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(openPreferences),
+            name: .openKclipPreferences,
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -87,54 +108,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Status Bar Menu
 
-    /// Builds the right-click menu fresh each time so the Launch at Login
-    /// checkmark always reflects the current `SMAppService` state.
+    /// Builds the right-click menu: Preferences… and Quit. All configurable
+    /// options now live in the Preferences window (``SettingsView``).
     private func buildStatusMenu() -> NSMenu {
         let menu = NSMenu()
 
-        let loginItem = NSMenuItem(
-            title: "Launch at Login",
-            action: #selector(toggleLaunchAtLogin),
-            keyEquivalent: ""
+        let prefsItem = NSMenuItem(
+            title: "Preferences…",
+            action: #selector(openPreferences),
+            keyEquivalent: ","
         )
-        loginItem.target = self
-        loginItem.state  = launchAtLoginEnabled ? .on : .off
-        menu.addItem(loginItem)
-
-        // History Size submenu
-        let sizeItem = NSMenuItem(title: "History Size", action: nil, keyEquivalent: "")
-        let sizeMenu = NSMenu()
-        for count in ClipboardStore.maxItemsOptions {
-            let option = NSMenuItem(
-                title: "\(count) items",
-                action: #selector(changeMaxItems(_:)),
-                keyEquivalent: ""
-            )
-            option.target = self
-            option.tag = count
-            option.state = (count == store.maxItems) ? .on : .off
-            sizeMenu.addItem(option)
-        }
-        sizeItem.submenu = sizeMenu
-        menu.addItem(sizeItem)
-
-        // Hotkey submenu
-        let hotkeyItem = NSMenuItem(title: "Hotkey", action: nil, keyEquivalent: "")
-        let hotkeyMenu = NSMenu()
-        let currentOption = hotkey.currentOption
-        for (idx, option) in HotkeyOption.allOptions.enumerated() {
-            let menuItem = NSMenuItem(
-                title: option.label,
-                action: #selector(changeHotkey(_:)),
-                keyEquivalent: ""
-            )
-            menuItem.target = self
-            menuItem.tag = idx
-            menuItem.state = (option == currentOption) ? .on : .off
-            hotkeyMenu.addItem(menuItem)
-        }
-        hotkeyItem.submenu = hotkeyMenu
-        menu.addItem(hotkeyItem)
+        prefsItem.target = self
+        menu.addItem(prefsItem)
 
         menu.addItem(.separator())
         menu.addItem(
@@ -145,33 +130,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
-    // MARK: - Launch at Login
-
-    /// `true` when Kclip is registered to launch automatically at login.
-    private var launchAtLoginEnabled: Bool {
-        SMAppService.mainApp.status == .enabled
-    }
-
-    // MARK: - History Size
-
-    /// Sets the maximum number of unpinned items from the History Size submenu.
-    @objc private func changeMaxItems(_ sender: NSMenuItem) {
-        store.maxItems = sender.tag
-        store.trimToLimit()
-    }
-
-    /// Toggles the Launch at Login state via `SMAppService` (macOS 13+).
-    @objc private func toggleLaunchAtLogin() {
-        do {
-            if launchAtLoginEnabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
-        } catch {
-            // Registration can fail if the user denies the request in System Settings.
-            // Silent failure is acceptable; the user can retry from the menu.
+    /// Opens the Preferences window, building it lazily on first use.
+    ///
+    /// Kclip hosts ``SettingsView`` in its own `NSWindow` rather than the SwiftUI
+    /// `Settings` scene: the scene's programmatic openers (`showSettingsWindow:`)
+    /// are unreliable for accessory (menu-bar) apps on recent macOS and fail with
+    /// a task-port error when no app window is already key. A plain window works
+    /// from any context. `activate` brings it forward since Kclip is an accessory.
+    @objc private func openPreferences() {
+        if settingsWindow == nil {
+            let hosting = NSHostingController(rootView: SettingsView(store: store))
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Kclip Preferences"
+            window.styleMask = [.titled, .closable, .miniaturizable]
+            window.isReleasedWhenClosed = false   // reuse across opens
+            window.center()
+            settingsWindow = window
         }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
     }
 
     // MARK: - Setup: Floating Panel
@@ -203,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.messageText = "Hotkey registration failed"
             alert.informativeText =
                 "Kclip could not register \(label). The shortcut may conflict with another app. " +
-                "You can change it from the menu bar icon (right-click → Hotkey)."
+                "You can change it in Preferences (menu bar icon → Preferences… → Shortcuts)."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.runModal()
@@ -211,27 +188,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let saved = HotkeyOption.load()
         hotkey.register(keyCode: saved.keyCode, modifiers: saved.modifiers)
-    }
-
-    // MARK: - Hotkey Change
-
-    @objc private func changeHotkey(_ sender: NSMenuItem) {
-        let idx = sender.tag
-        guard idx >= 0, idx < HotkeyOption.allOptions.count else { return }
-        let option = HotkeyOption.allOptions[idx]
-        if !hotkey.switchTo(option) {
-            let alert = NSAlert()
-            alert.messageText = "Hotkey conflict"
-            alert.informativeText =
-                "Could not register \(option.label). It may conflict with another app. " +
-                "The previous hotkey has been restored."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            // Re-register the previous hotkey
-            let fallback = HotkeyOption.load()
-            hotkey.switchTo(fallback)
-        }
     }
 
     // MARK: - Accessibility Check

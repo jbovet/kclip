@@ -8,7 +8,7 @@ import AppKit
 // MARK: - HotkeyOption
 
 /// A predefined hotkey combination that the user can choose from the status-bar menu.
-struct HotkeyOption: Equatable {
+struct HotkeyOption: Equatable, Hashable {
     /// Display label shown in the menu (e.g. "⌘⇧V").
     let label: String
     /// Carbon virtual key code (`kVK_*`).
