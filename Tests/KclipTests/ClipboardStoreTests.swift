@@ -361,11 +361,18 @@ final class ClipboardStoreTests: XCTestCase {
     }
 
     func testMemoryOnly_enabling_clearsAlreadyPersistedHistory() {
-        store.add(ClipboardItem(content: "on disk"))     // persisted (default mode)
+        // The persistence key used by ClipboardStore.save().
+        let historyKey = "cc.kclip.history"
+
+        store.add(ClipboardItem(content: "on disk"))       // persisted (default mode)
+        // Sanity: it really was written to disk (guards against a stale key literal).
+        XCTAssertNotNil(testDefaults.data(forKey: historyKey))
+
         store.memoryOnly = true                            // should wipe the on-disk copy
 
-        let store2 = ClipboardStore(defaults: testDefaults)
-        XCTAssertTrue(store2.items.isEmpty)
+        // The raw blob is gone from UserDefaults — asserted directly rather than
+        // via a fresh store, whose load() would skip anyway while memory-only is on.
+        XCTAssertNil(testDefaults.data(forKey: historyKey))
     }
 
     func testMemoryOnly_disabling_persistsCurrentItems() {
