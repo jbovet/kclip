@@ -343,4 +343,52 @@ final class ClipboardStoreTests: XCTestCase {
         let store2 = ClipboardStore(defaults: testDefaults)
         XCTAssertTrue(store2.items[0].isPinned)
     }
+
+    // MARK: - Memory-only mode
+
+    func testMemoryOnly_defaultIsFalse() {
+        XCTAssertFalse(store.memoryOnly)
+    }
+
+    func testMemoryOnly_whenEnabled_doesNotPersist() {
+        store.memoryOnly = true
+        store.add(ClipboardItem(content: "ephemeral"))
+        // Item is present in the current session…
+        XCTAssertEqual(store.items.count, 1)
+        // …but a fresh store (a "relaunch") starts empty.
+        let store2 = ClipboardStore(defaults: testDefaults)
+        XCTAssertTrue(store2.items.isEmpty)
+    }
+
+    func testMemoryOnly_enabling_clearsAlreadyPersistedHistory() {
+        // The persistence key used by ClipboardStore.save().
+        let historyKey = "cc.kclip.history"
+
+        store.add(ClipboardItem(content: "on disk"))       // persisted (default mode)
+        // Sanity: it really was written to disk (guards against a stale key literal).
+        XCTAssertNotNil(testDefaults.data(forKey: historyKey))
+
+        store.memoryOnly = true                            // should wipe the on-disk copy
+
+        // The raw blob is gone from UserDefaults — asserted directly rather than
+        // via a fresh store, whose load() would skip anyway while memory-only is on.
+        XCTAssertNil(testDefaults.data(forKey: historyKey))
+    }
+
+    func testMemoryOnly_disabling_persistsCurrentItems() {
+        store.memoryOnly = true
+        store.add(ClipboardItem(content: "A"))
+        store.add(ClipboardItem(content: "B"))
+        store.memoryOnly = false                           // resume persistence, write now
+
+        let store2 = ClipboardStore(defaults: testDefaults)
+        XCTAssertEqual(store2.items.count, 2)
+        XCTAssertEqual(Set(store2.items.map(\.content)), ["A", "B"])
+    }
+
+    func testMemoryOnly_settingPersistsAcrossStores() {
+        store.memoryOnly = true
+        let store2 = ClipboardStore(defaults: testDefaults)
+        XCTAssertTrue(store2.memoryOnly)
+    }
 }
