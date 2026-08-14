@@ -103,6 +103,8 @@ private struct PrivacySettingsView: View {
     @State private var hasAccessibility = PasteHelper.hasAccessibilityPermission
     /// Mirrors `store.memoryOnly` (a UserDefaults-backed property, not @Published).
     @State private var memoryOnly = false
+    /// Mirrors `store.clearOnQuit` (a UserDefaults-backed property, not @Published).
+    @State private var clearOnQuit = false
 
     var body: some View {
         Form {
@@ -114,6 +116,16 @@ private struct PrivacySettingsView: View {
                 Text("When on, clipboard history is never written to disk and "
                      + "starts empty each time Kclip launches. Turning it on also "
                      + "removes any history already saved to disk.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Clear history when Kclip quits", isOn: $clearOnQuit)
+                    .onChange(of: clearOnQuit) { newValue in
+                        store.clearOnQuit = newValue
+                    }
+                    .disabled(memoryOnly)
+                Text("When on, unpinned history is removed as Kclip quits; "
+                     + "pinned items are kept.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -156,6 +168,7 @@ private struct PrivacySettingsView: View {
         .onAppear {
             hasAccessibility = PasteHelper.hasAccessibilityPermission
             memoryOnly = store.memoryOnly
+            clearOnQuit = store.clearOnQuit
         }
         // Re-read permission when the window regains focus (e.g. after the user
         // grants it in System Settings and comes back).
