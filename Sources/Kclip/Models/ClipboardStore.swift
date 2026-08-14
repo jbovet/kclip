@@ -34,6 +34,28 @@ class ClipboardStore: ObservableObject {
         }
     }
 
+    /// UserDefaults key for the memory-only setting.
+    private static let memoryOnlyKey = "cc.kclip.memoryOnly"
+
+    /// When `true`, history is kept in memory for the current session only and
+    /// is never written to disk. Defaults to `false` (history persists).
+    ///
+    /// Enabling it clears any already-persisted history and turns ``save()`` into
+    /// a no-op; disabling it persists the current in-memory items immediately.
+    var memoryOnly: Bool {
+        get { defaults.bool(forKey: Self.memoryOnlyKey) }
+        set {
+            defaults.set(newValue, forKey: Self.memoryOnlyKey)
+            if newValue {
+                // Stop persisting and wipe anything already written to disk.
+                defaults.removeObject(forKey: storageKey)
+            } else {
+                // Resume persistence: write the current session's items now.
+                save()
+            }
+        }
+    }
+
     private let storageKey = "cc.kclip.history"
 
     /// The `UserDefaults` suite used for persistence.
@@ -171,11 +193,15 @@ class ClipboardStore: ObservableObject {
     // MARK: - Persistence (UserDefaults)
 
     private func save() {
+        // In memory-only mode history is never written to disk.
+        guard !memoryOnly else { return }
         guard let data = try? JSONEncoder().encode(items) else { return }
         defaults.set(data, forKey: storageKey)
     }
 
     private func load() {
+        // In memory-only mode we start each session empty.
+        guard !memoryOnly else { return }
         guard
             let data  = defaults.data(forKey: storageKey),
             let saved = try? JSONDecoder().decode([ClipboardItem].self, from: data)

@@ -22,7 +22,7 @@ struct SettingsView: View {
             GeneralSettingsView(store: store)
                 .tabItem { Label("General", systemImage: "gearshape") }
 
-            PrivacySettingsView()
+            PrivacySettingsView(store: store)
                 .tabItem { Label("Privacy", systemImage: "hand.raised") }
 
             ShortcutsSettingsView()
@@ -93,14 +93,31 @@ private struct GeneralSettingsView: View {
 
 // MARK: - Privacy
 
-/// Read-only privacy status: Accessibility permission and the built-in
-/// app-exclusion list. Editable controls arrive with the privacy issues (#6–#8).
+/// Privacy controls: the memory-only history toggle (#6), plus read-only
+/// Accessibility status and the built-in app-exclusion list (#8 will make the
+/// exclusions editable; clear-on-quit #7 will add a toggle here too).
 private struct PrivacySettingsView: View {
 
+    @ObservedObject var store: ClipboardStore
+
     @State private var hasAccessibility = PasteHelper.hasAccessibilityPermission
+    /// Mirrors `store.memoryOnly` (a UserDefaults-backed property, not @Published).
+    @State private var memoryOnly = false
 
     var body: some View {
         Form {
+            Section("History") {
+                Toggle("Keep history in memory only", isOn: $memoryOnly)
+                    .onChange(of: memoryOnly) { newValue in
+                        store.memoryOnly = newValue
+                    }
+                Text("When on, clipboard history is never written to disk and "
+                     + "starts empty each time Kclip launches. Turning it on also "
+                     + "removes any history already saved to disk.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Pasting") {
                 HStack(spacing: 10) {
                     Image(systemName: hasAccessibility
@@ -135,6 +152,11 @@ private struct PrivacySettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // Sync the mirrored settings on each open.
+        .onAppear {
+            hasAccessibility = PasteHelper.hasAccessibilityPermission
+            memoryOnly = store.memoryOnly
+        }
         // Re-read permission when the window regains focus (e.g. after the user
         // grants it in System Settings and comes back).
         .onReceive(NotificationCenter.default.publisher(
