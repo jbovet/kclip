@@ -70,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         monitor.stop()
         hotkey.unregister()
+        store.clearOnQuitIfNeeded()
     }
 
     // MARK: - Setup: Status Bar

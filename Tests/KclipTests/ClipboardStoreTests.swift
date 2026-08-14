@@ -391,4 +391,47 @@ final class ClipboardStoreTests: XCTestCase {
         let store2 = ClipboardStore(defaults: testDefaults)
         XCTAssertTrue(store2.memoryOnly)
     }
+
+    // MARK: - Clear on quit
+
+    func testClearOnQuit_defaultIsFalse() {
+        XCTAssertFalse(store.clearOnQuit)
+    }
+
+    func testClearOnQuit_settingPersistsAcrossStores() {
+        store.clearOnQuit = true
+        let store2 = ClipboardStore(defaults: testDefaults)
+        XCTAssertTrue(store2.clearOnQuit)
+    }
+
+    func testClearOnQuitIfNeeded_whenDisabled_keepsEverything() {
+        store.add(ClipboardItem(content: "A"))
+        store.add(ClipboardItem(content: "B"))
+        store.clearOnQuitIfNeeded()   // disabled → no-op
+        XCTAssertEqual(store.items.count, 2)
+    }
+
+    func testClearOnQuitIfNeeded_whenEnabled_removesUnpinnedKeepsPinned() {
+        let pinned = ClipboardItem(content: "keep me")
+        store.add(pinned)
+        store.togglePin(id: pinned.id)
+        store.add(ClipboardItem(content: "drop me"))
+
+        store.clearOnQuit = true
+        store.clearOnQuitIfNeeded()
+
+        XCTAssertEqual(store.items.count, 1)
+        XCTAssertEqual(store.items[0].content, "keep me")
+        XCTAssertTrue(store.items[0].isPinned)
+    }
+
+    func testClearOnQuitIfNeeded_whenEnabled_persistsClearedState() {
+        store.add(ClipboardItem(content: "drop me"))
+        store.clearOnQuit = true
+        store.clearOnQuitIfNeeded()
+
+        // A relaunch sees the cleared history.
+        let store2 = ClipboardStore(defaults: testDefaults)
+        XCTAssertTrue(store2.items.isEmpty)
+    }
 }

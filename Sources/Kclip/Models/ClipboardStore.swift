@@ -56,6 +56,16 @@ class ClipboardStore: ObservableObject {
         }
     }
 
+    /// UserDefaults key for the clear-on-quit setting.
+    private static let clearOnQuitKey = "cc.kclip.clearOnQuit"
+
+    /// When `true`, unpinned history is removed when Kclip quits, so the next
+    /// launch starts clean. Pinned items are kept. Defaults to `false`.
+    var clearOnQuit: Bool {
+        get { defaults.bool(forKey: Self.clearOnQuitKey) }
+        set { defaults.set(newValue, forKey: Self.clearOnQuitKey) }
+    }
+
     private let storageKey = "cc.kclip.history"
 
     /// The `UserDefaults` suite used for persistence.
@@ -175,6 +185,15 @@ class ClipboardStore: ObservableObject {
     /// Removes all unpinned items from history. Pinned items are preserved. Pushes an undo snapshot.
     func clearUnpinned() {
         pushUndo()
+        items.removeAll { !$0.isPinned }
+        save()
+    }
+
+    /// Called on app termination: if ``clearOnQuit`` is enabled, remove unpinned
+    /// history (pinned items are kept) and persist, so the next launch starts
+    /// clean. No undo snapshot is pushed since the app is shutting down.
+    func clearOnQuitIfNeeded() {
+        guard clearOnQuit else { return }
         items.removeAll { !$0.isPinned }
         save()
     }

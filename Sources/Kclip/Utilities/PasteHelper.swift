@@ -44,7 +44,7 @@ final class PasteHelper {
         }
     }
 
-    // MARK: - Paste
+    // snapshotFrontApp: - Paste
 
     /// Pastes `text` into the application captured by ``snapshotFrontApp()``.
     ///
