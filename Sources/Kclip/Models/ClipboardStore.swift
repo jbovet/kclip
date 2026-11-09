@@ -59,11 +59,20 @@ class ClipboardStore: ObservableObject {
     /// UserDefaults key for the clear-on-quit setting.
     private static let clearOnQuitKey = "cc.kclip.clearOnQuit"
 
-    /// When `true`, unpinned history is removed when Kclip quits, so the next
-    /// launch starts clean. Pinned items are kept. Defaults to `false`.
+    /// When `true`, unpinned history does not survive Kclip quitting, so the
+    /// next launch starts clean. Pinned items are kept. Defaults to `false`.
+    ///
+    /// While enabled, only pinned items are ever written to disk: unpinned
+    /// history lives in memory, so a crash, force-quit, or kill (which skip
+    /// `applicationWillTerminate`) cannot leave it behind. Toggling re-saves
+    /// immediately: enabling scrubs unpinned items already on disk, disabling
+    /// persists the current session's items.
     var clearOnQuit: Bool {
         get { defaults.bool(forKey: Self.clearOnQuitKey) }
-        set { defaults.set(newValue, forKey: Self.clearOnQuitKey) }
+        set {
+            defaults.set(newValue, forKey: Self.clearOnQuitKey)
+            save()
+        }
     }
 
     private let storageKey = "cc.kclip.history"
@@ -82,9 +91,24 @@ class ClipboardStore: ObservableObject {
 
     // MARK: - Undo Stack
 
-    /// Stack of previous `items` snapshots for undo support.
-    /// Each `remove` / `clearUnpinned` pushes the pre-mutation state here.
-    private var undoStack: [[ClipboardItem]] = []
+    /// An item removed by a delete / clear, plus where to put it back.
+    private struct RemovedItem {
+        let item: ClipboardItem
+        /// The nearest item *below* it that survived the removal (`nil` if it
+        /// was at the bottom). Undo re-inserts the item directly above this
+        /// anchor, so items copied since the delete stay above it — unlike a
+        /// raw index, which goes stale as soon as anything is added on top.
+        let anchorID: UUID?
+    }
+
+    /// One undoable deletion, in original top-to-bottom order.
+    private typealias UndoEntry = [RemovedItem]
+
+    /// Stack of deletions for undo support. Each `remove` / `clearUnpinned`
+    /// pushes only what it removed, so undo re-inserts those items without
+    /// discarding anything added, pinned, or trimmed since (a full snapshot
+    /// restore used to silently drop items copied after the delete).
+    private var undoStack: [UndoEntry] = []
 
     /// `true` when there is at least one undoable action.
     var canUndo: Bool { !undoStack.isEmpty }
@@ -130,28 +154,81 @@ class ClipboardStore: ObservableObject {
     /// - Parameter index: A valid index within `items`; out-of-range values are ignored.
     func remove(at index: Int) {
         guard items.indices.contains(index) else { return }
-        pushUndo()
-        items.remove(at: index)
-        save()
+        // Capture the id first: the predicate must not read `items` while
+        // removeAll(where:) is mutating it (exclusive-access violation).
+        let id = items[index].id
+        removeItems { $0.id == id }
     }
 
-    /// Removes the item with the given identifier. Pushes an undo snapshot.
+    /// Removes the item with the given identifier. Pushes an undo entry.
     /// - Parameter id: The `UUID` of the item to remove.
     func remove(id: UUID) {
-        guard items.contains(where: { $0.id == id }) else { return }
-        pushUndo()
-        items.removeAll { $0.id == id }
-        save()
+        removeItems { $0.id == id }
     }
 
-    /// Restores the most recent undo snapshot, reverting the last delete.
-    /// - Returns: `true` if an undo was performed, `false` if the stack was empty.
+    /// Re-inserts the items removed by the most recent delete / clear.
+    ///
+    /// Items go back where they were relative to their neighbours, so anything
+    /// copied, pinned, or reordered since the delete is kept and history stays
+    /// newest-first. An unpinned item whose text was copied again meanwhile is
+    /// not restored twice, and the ``maxItems`` limit is re-applied.
+    ///
+    /// An entry that would restore nothing visible (everything already back,
+    /// or immediately trimmed by the limit) is skipped in favour of the next
+    /// one, so each successful call visibly restores something.
+    /// - Returns: `true` if at least one item was restored, `false` otherwise.
     @discardableResult
     func undo() -> Bool {
-        guard let snapshot = undoStack.popLast() else { return false }
-        items = snapshot
-        save()
+        while let entry = undoStack.popLast() {
+            if restore(entry) {
+                save()
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Re-inserts one entry's items and re-applies the limit.
+    /// - Returns: `true` if at least one restored item survived trimming.
+    private func restore(_ entry: UndoEntry) -> Bool {
+        let before = items
+        var restoredIDs: Set<UUID> = []
+        for removed in entry {
+            let item = removed.item
+            let alreadyPresent = items.contains {
+                $0.id == item.id || (!item.isPinned && !$0.isPinned && $0.content == item.content)
+            }
+            guard !alreadyPresent else { continue }
+            items.insert(item, at: insertionIndex(for: removed))
+            restoredIDs.insert(item.id)
+        }
+        applyLimit()
+        guard items.contains(where: { restoredIDs.contains($0.id) }) else {
+            items = before   // nothing visible came back; leave history untouched
+            return false
+        }
         return true
+    }
+
+    /// Where to re-insert a removed item, keeping pinned items first.
+    private func insertionIndex(for removed: RemovedItem) -> Int {
+        let item = removed.item
+        let pinnedCount = items.lazy.filter(\.isPinned).count
+        // Directly above the anchor, if it still exists in the same group.
+        if let anchorID = removed.anchorID,
+           let anchor = items.firstIndex(where: { $0.id == anchorID }),
+           items[anchor].isPinned == item.isPinned {
+            return anchor
+        }
+        if item.isPinned {
+            return pinnedCount                       // bottom of the pinned group
+        }
+        if removed.anchorID == nil {
+            return items.count                       // it was the bottom item
+        }
+        // Anchor gone (deleted / pinned since): fall back to copy time so the
+        // unpinned group stays newest-first.
+        return items[pinnedCount...].firstIndex { $0.timestamp < item.timestamp } ?? items.count
     }
 
     /// Toggles the pinned state of an item and re-sorts so pinned items stay on top.
@@ -174,19 +251,23 @@ class ClipboardStore: ObservableObject {
     /// Enforces the current `maxItems` limit, trimming excess unpinned items.
     /// Call after changing ``maxItems`` to apply the new limit immediately.
     func trimToLimit() {
+        if applyLimit() { save() }
+    }
+
+    /// Drops the oldest unpinned items beyond ``maxItems`` (no save).
+    /// - Returns: `true` if anything was trimmed.
+    @discardableResult
+    private func applyLimit() -> Bool {
         let pinned   = items.filter { $0.isPinned }
         let unpinned = items.filter { !$0.isPinned }
-        if unpinned.count > maxItems {
-            items = pinned + Array(unpinned.prefix(maxItems))
-            save()
-        }
+        guard unpinned.count > maxItems else { return false }
+        items = pinned + Array(unpinned.prefix(maxItems))
+        return true
     }
 
     /// Removes all unpinned items from history. Pinned items are preserved. Pushes an undo snapshot.
     func clearUnpinned() {
-        pushUndo()
-        items.removeAll { !$0.isPinned }
-        save()
+        removeItems { !$0.isPinned }
     }
 
     /// Called on app termination: if ``clearOnQuit`` is enabled, remove unpinned
@@ -200,9 +281,29 @@ class ClipboardStore: ObservableObject {
 
     // MARK: - Undo Helpers
 
-    /// Saves the current `items` array before a destructive operation.
-    private func pushUndo() {
-        undoStack.append(items)
+    /// Removes every item matching `predicate`, recording them (with their
+    /// anchors) as one undo entry. No-op — and no undo entry — if nothing matches.
+    private func removeItems(where predicate: (ClipboardItem) -> Bool) {
+        // Walk bottom-up so each removed item knows the nearest survivor below it.
+        var removed: UndoEntry = []
+        var survivorBelow: UUID?
+        for item in items.reversed() {
+            if predicate(item) {
+                removed.append(RemovedItem(item: item, anchorID: survivorBelow))
+            } else {
+                survivorBelow = item.id
+            }
+        }
+        removed.reverse()   // back to top-to-bottom order
+        guard !removed.isEmpty else { return }
+        pushUndo(removed)
+        items.removeAll(where: predicate)
+        save()
+    }
+
+    /// Records a deletion so it can be undone.
+    private func pushUndo(_ entry: UndoEntry) {
+        undoStack.append(entry)
         // Cap the stack so memory usage stays bounded
         if undoStack.count > Self.maxUndoDepth {
             undoStack.removeFirst(undoStack.count - Self.maxUndoDepth)
@@ -214,7 +315,9 @@ class ClipboardStore: ObservableObject {
     private func save() {
         // In memory-only mode history is never written to disk.
         guard !memoryOnly else { return }
-        guard let data = try? JSONEncoder().encode(items) else { return }
+        // With clear-on-quit, unpinned history is never persisted (see clearOnQuit).
+        let toPersist = clearOnQuit ? items.filter(\.isPinned) : items
+        guard let data = try? JSONEncoder().encode(toPersist) else { return }
         defaults.set(data, forKey: storageKey)
     }
 
@@ -225,6 +328,14 @@ class ClipboardStore: ObservableObject {
             let data  = defaults.data(forKey: storageKey),
             let saved = try? JSONDecoder().decode([ClipboardItem].self, from: data)
         else { return }
-        items = saved
+        guard clearOnQuit else {
+            items = saved
+            return
+        }
+        // Clear-on-quit: drop unpinned items left on disk (e.g. by an older build
+        // that crashed before its quit hook ran) and scrub them from storage now,
+        // rather than waiting for the next mutation to rewrite it.
+        items = saved.filter(\.isPinned)
+        if items.count != saved.count { save() }
     }
 }

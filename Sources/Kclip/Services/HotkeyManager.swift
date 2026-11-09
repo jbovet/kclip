@@ -79,9 +79,13 @@ final class HotkeyManager {
     /// Called on the main thread when the registered hotkey is pressed.
     var onActivate: (() -> Void)?
 
-    /// Called on the main thread if hotkey registration fails (e.g. conflict with another app).
-    /// Provides the `OSStatus` error codes from `InstallEventHandler` and `RegisterEventHotKey`.
-    var onRegistrationFailed: ((_ installStatus: OSStatus, _ registerStatus: OSStatus) -> Void)?
+    /// Called on the main thread if ``register(keyCode:modifiers:)`` fails (e.g. conflict
+    /// with another app). Provides the label of the shortcut that was attempted and the
+    /// `OSStatus` codes from `InstallEventHandler` and `RegisterEventHotKey`.
+    ///
+    /// Not called by ``switchTo(_:)``: its callers get the result as a `Bool` and
+    /// report the conflict themselves (otherwise the user saw two alerts).
+    var onRegistrationFailed: ((_ attemptedLabel: String, _ installStatus: OSStatus, _ registerStatus: OSStatus) -> Void)?
 
     /// `true` after ``register(keyCode:modifiers:)`` completes successfully.
     private(set) var isRegistered: Bool = false
@@ -91,15 +95,36 @@ final class HotkeyManager {
 
     // MARK: - Register
 
-    /// Registers the global hotkey with the system.
+    /// Registers the global hotkey with the system, calling ``onRegistrationFailed``
+    /// if it cannot be registered.
     ///
     /// - Parameters:
     ///   - keyCode: Virtual key code (Carbon `kVK_*`). Default is `kVK_ANSI_V` (V key).
     ///   - modifiers: Carbon modifier flags. Default is `cmdKey | shiftKey` (⌘⇧).
+    /// - Returns: `true` if registration succeeded.
+    @discardableResult
     func register(
         keyCode: UInt32 = UInt32(kVK_ANSI_V),
         modifiers: UInt32 = UInt32(cmdKey | shiftKey)
-    ) {
+    ) -> Bool {
+        let (installStatus, registerStatus) = attemptRegistration(keyCode: keyCode, modifiers: modifiers)
+        guard !isRegistered else { return true }
+        let label = HotkeyOption.find(keyCode: keyCode, modifiers: modifiers)?.label
+            ?? "the selected shortcut"
+        DispatchQueue.main.async { [weak self] in
+            self?.onRegistrationFailed?(label, installStatus, registerStatus)
+        }
+        return false
+    }
+
+    /// Installs the event handler and registers the hotkey without reporting
+    /// failures. On failure any partially installed handler is removed, so a
+    /// later attempt never stacks a second handler on top of a leaked one.
+    /// - Returns: The `InstallEventHandler` and `RegisterEventHotKey` statuses.
+    private func attemptRegistration(keyCode: UInt32, modifiers: UInt32) -> (OSStatus, OSStatus) {
+        // Drop any existing registration so refs are never overwritten and leaked.
+        unregister()
+
         // Carbon hotkey signature: "CCIP" in four chars
         let hotKeyID = EventHotKeyID(signature: 0x43434950, id: 1)
 
@@ -143,22 +168,21 @@ final class HotkeyManager {
             isRegistered = true
             currentOption = HotkeyOption.find(keyCode: keyCode, modifiers: modifiers) ?? .defaultOption
         } else {
-            isRegistered = false
-            let install  = installStatus
-            let register = registerStatus
-            DispatchQueue.main.async { [weak self] in
-                self?.onRegistrationFailed?(install, register)
-            }
+            // Clean up whichever half succeeded; also sets isRegistered = false.
+            unregister()
         }
+        return (installStatus, registerStatus)
     }
 
     /// Unregisters the current hotkey, registers a new one, and persists the choice.
+    ///
+    /// Does not call ``onRegistrationFailed``; the caller handles a `false` result.
     /// - Parameter option: The hotkey option to switch to.
     /// - Returns: `true` if re-registration succeeded.
     @discardableResult
     func switchTo(_ option: HotkeyOption) -> Bool {
         unregister()
-        register(keyCode: option.keyCode, modifiers: option.modifiers)
+        _ = attemptRegistration(keyCode: option.keyCode, modifiers: option.modifiers)
         if isRegistered {
             option.save()
         }

@@ -88,9 +88,26 @@ final class PasteHelper {
     // MARK: - Private
 
     private func writeToPasteboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
+        Self.copyToPasteboard(text)
+    }
+
+    /// Writes `text` to the pasteboard, tagged as Kclip's own write.
+    ///
+    /// The ``ClipboardMonitor/ownWriteMarkerType`` marker lets the monitor skip
+    /// this change instead of re-adding the item (which duplicated pinned items
+    /// and reshuffled history on every paste). The `org.nspasteboard.source`
+    /// marker identifies Kclip to other clipboard tools.
+    ///
+    /// - Parameters:
+    ///   - text: The string to place on the pasteboard.
+    ///   - pasteboard: Injectable for tests; defaults to the general pasteboard.
+    static func copyToPasteboard(_ text: String, pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        pasteboard.setData(Data(), forType: ClipboardMonitor.ownWriteMarkerType)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            pasteboard.setString(bundleID, forType: ClipboardMonitor.sourceMarkerType)
+        }
     }
 
     private static func simulateKeyPress(flags: CGEventFlags) {
