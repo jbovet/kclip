@@ -101,6 +101,14 @@ private struct PrivacySettingsView: View {
     @ObservedObject var store: ClipboardStore
 
     @State private var hasAccessibility = PasteHelper.hasAccessibilityPermission
+    /// `true` once permission flipped denied→granted while running, which drives
+    /// the "restart if pasting still fails" hint (TCC may cache the old denial).
+    @State private var grantedThisSession = false
+    /// Polls `AXIsProcessTrusted()` while the window is open so a granted
+    /// permission is reflected without a restart. More reliable than the
+    /// `com.apple.accessibility.api` distributed notification, which is flaky on
+    /// modern macOS. The check is cheap and stops mattering once granted.
+    private let permissionPoll = Timer.publish(every: 1.5, on: .main, in: .common).autoconnect()
     /// Mirrors `store.memoryOnly` (a UserDefaults-backed property, not @Published).
     @State private var memoryOnly = false
     /// Mirrors `store.clearOnQuit` (a UserDefaults-backed property, not @Published).
@@ -137,9 +145,9 @@ private struct PrivacySettingsView: View {
                         .foregroundStyle(hasAccessibility ? .green : .orange)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Accessibility permission")
-                        Text(hasAccessibility
-                             ? "Granted — Kclip can paste into other apps."
-                             : "Not granted — items are copied but not auto-pasted.")
+                        Text(AccessibilityStatus.message(
+                            granted: hasAccessibility,
+                            grantedThisSession: grantedThisSession))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -166,16 +174,29 @@ private struct PrivacySettingsView: View {
         .formStyle(.grouped)
         // Sync the mirrored settings on each open.
         .onAppear {
-            hasAccessibility = PasteHelper.hasAccessibilityPermission
+            refreshAccessibility()
             memoryOnly = store.memoryOnly
             clearOnQuit = store.clearOnQuit
         }
-        // Re-read permission when the window regains focus (e.g. after the user
-        // grants it in System Settings and comes back).
+        // Re-read permission when the app reactivates (e.g. after the user grants
+        // it in System Settings and switches back).
         .onReceive(NotificationCenter.default.publisher(
             for: NSApplication.didBecomeActiveNotification)) { _ in
-            hasAccessibility = PasteHelper.hasAccessibilityPermission
+            refreshAccessibility()
         }
+        // Poll while the window is open so a granted permission is reflected
+        // without requiring the user to refocus Kclip.
+        .onReceive(permissionPoll) { _ in
+            refreshAccessibility()
+        }
+    }
+
+    /// Re-reads the Accessibility trust and records a denied→granted transition,
+    /// which switches the status line to the "restart if pasting still fails" hint.
+    private func refreshAccessibility() {
+        let granted = PasteHelper.hasAccessibilityPermission
+        if granted && !hasAccessibility { grantedThisSession = true }
+        hasAccessibility = granted
     }
 }
 
