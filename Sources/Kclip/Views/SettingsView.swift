@@ -186,6 +186,7 @@ private struct ShortcutsSettingsView: View {
 
     @State private var selection = HotkeyManager.shared.currentOption
     @State private var showConflict = false
+    @State private var conflictMessage = ""
 
     var body: some View {
         Form {
@@ -195,15 +196,26 @@ private struct ShortcutsSettingsView: View {
                 }
             }
             .onChange(of: selection) { newValue in
-                guard newValue != HotkeyManager.shared.currentOption else { return }
-                let previous = HotkeyManager.shared.currentOption
-                if !HotkeyManager.shared.switchTo(newValue) {
+                let manager = HotkeyManager.shared
+                // Re-selecting the current option is a no-op — unless nothing is
+                // registered (a failed restore), in which case it is a retry.
+                guard newValue != manager.currentOption || !manager.isRegistered else { return }
+                let previous = manager.currentOption
+                if !manager.switchTo(newValue) {
                     // Conflict: switchTo already unregistered the previous binding,
                     // so re-register it (leaving no hotkey at all would be worse)
-                    // and snap the picker back.
+                    // and snap the picker back. switchTo() doesn't trigger the
+                    // app-level alert, so report both outcomes here.
+                    if newValue != previous, manager.switchTo(previous) {
+                        conflictMessage = "\(newValue.label) conflicts with another app. "
+                            + "\(previous.label) was kept."
+                    } else {
+                        conflictMessage = "\(newValue.label) conflicts with another app and "
+                            + "\(previous.label) could not be restored. No global shortcut "
+                            + "is active — choose another one."
+                    }
                     showConflict = true
-                    HotkeyManager.shared.switchTo(previous)
-                    selection = HotkeyManager.shared.currentOption
+                    selection = manager.currentOption
                 }
             }
 
@@ -217,7 +229,7 @@ private struct ShortcutsSettingsView: View {
         .alert("Shortcut unavailable", isPresented: $showConflict) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("That shortcut conflicts with another app. The previous one was kept.")
+            Text(conflictMessage)
         }
     }
 }

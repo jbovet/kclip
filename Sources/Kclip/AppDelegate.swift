@@ -174,9 +174,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.panelController?.toggle()
         }
 
-        hotkey.onRegistrationFailed = { [weak self] _, _ in
-            guard let self else { return }
-            let label = self.hotkey.currentOption.label
+        // Fires only for the launch-time register() below; Preferences uses
+        // switchTo(), which reports conflicts in its own UI.
+        hotkey.onRegistrationFailed = { label, _, _ in
             let alert = NSAlert()
             alert.messageText = "Hotkey registration failed"
             alert.informativeText =

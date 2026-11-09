@@ -180,6 +180,13 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     /// panel visibility — not to the fragile SwiftUI NSViewRepresentable view hierarchy.
     let bridge = KeyEventBridge()
     private var keyMonitor: Any?
+    /// Incremented on every ``show()``. Deferred work (the fade-out's `orderOut`,
+    /// the copy-only auto-hide) captures it and is skipped if the panel has been
+    /// shown again since, so a stale timer never closes a freshly opened panel.
+    private var showGeneration = 0
+    /// `true` while the fade-out runs. The window is still `isVisible` then, so
+    /// ``toggle()`` uses this to treat a closing panel as closed and re-show it.
+    private var isHiding = false
 
     // MARK: - Init
 
@@ -197,9 +204,12 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     /// `true` when the panel is currently visible on screen.
     var isVisible: Bool { panel?.isVisible == true }
 
-    /// Shows the panel if hidden, or hides it if already visible.
+    /// Shows the panel if hidden (or fading out), or hides it if already visible.
+    ///
+    /// A panel that is mid fade-out counts as hidden, so pressing the hotkey
+    /// right after Esc / a paste re-opens it instead of hiding it a second time.
     func toggle() {
-        if isVisible { hide() } else { show() }
+        if isVisible && !isHiding { hide() } else { show() }
     }
 
     /// Shows the panel centered on the active screen with a fade-in animation.
@@ -207,6 +217,9 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
     /// Also snapshots the frontmost app (for later paste) and installs a global
     /// mouse monitor that dismisses the panel on outside clicks.
     func show() {
+        showGeneration += 1
+        isHiding = false   // cancels a fade-out in progress (its orderOut is skipped)
+
         // Remember the app that's currently focused (we'll paste into it later)
         pasteHelper.snapshotFrontApp()
 
@@ -259,7 +272,8 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
 
     /// Hides the panel with a fade-out animation.
     func hide() {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, panel.isVisible, !isHiding else { return }
+        isHiding = true
 
         if let monitor = mouseMonitor {
             NSEvent.removeMonitor(monitor)
@@ -271,10 +285,14 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
             keyMonitor = nil
         }
 
+        let generation = showGeneration
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = Self.hideAnimationDuration
             panel.animator().alphaValue = 0
-        }, completionHandler: {
+        }, completionHandler: { [weak self] in
+            // Re-shown during the fade-out: leave the new presentation alone.
+            guard let self, self.showGeneration == generation else { return }
+            self.isHiding = false
             panel.orderOut(nil)
         })
     }
@@ -310,9 +328,7 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
                 pasteHelper.paste(text)
             }
         } else {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(text, forType: .string)
+            PasteHelper.copyToPasteboard(text)
 
             // Distinguish "nowhere to paste" from "not allowed to paste" so the
             // user knows to grant Accessibility (and restart) when that's the cause.
@@ -322,8 +338,11 @@ final class FloatingPanelController: NSObject, NSWindowDelegate {
             NotificationCenter.default.post(
                 name: .clipClipCopiedOnly, object: nil, userInfo: ["message": message])
 
+            let generation = showGeneration
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.copiedOnlyAutoHideDelay) { [weak self] in
-                self?.hide()
+                // Skip if the user closed and re-opened the panel in the meantime.
+                guard let self, self.showGeneration == generation else { return }
+                self.hide()
             }
         }
     }
